@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EcoLog - Smart Carbon Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f0fdf4; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #86efac; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #4ade80; }
+        
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-slide-down { animation: slideDown 0.4s ease-out forwards; }
+    </style>
+</head>
+<body class="bg-stone-50 min-h-screen font-sans text-stone-800 flex flex-col">
+
+    <!-- Top Navigation & API Key Configuration -->
+    <nav class="bg-emerald-700 shadow-md border-b border-emerald-800 px-6 py-4 flex flex-col sm:flex-row justify-between items-center gap-4 shrink-0 relative z-20">
+        <div class="flex items-center space-x-3 text-white">
+            <i class="fa-solid fa-leaf text-emerald-300 text-2xl"></i>
+            <h1 class="text-2xl font-bold tracking-tight">Eco<span class="text-emerald-200 font-light">Log</span></h1>
+        </div>
+        
+        <div class="flex items-center bg-emerald-800 p-2 rounded-lg border border-emerald-600 w-full sm:w-auto shadow-inner">
+            <i class="fa-solid fa-key text-emerald-400 ml-2 mr-3"></i>
+            <input 
+                type="password" 
+                id="apiKeyInput" 
+                placeholder="Paste Gemini API Key here..." 
+                class="bg-transparent border-none focus:outline-none text-sm w-64 text-white placeholder-emerald-400"
+            >
+            <button id="saveKeyBtn" class="ml-2 bg-white text-emerald-800 hover:bg-emerald-50 text-xs px-4 py-1.5 rounded transition-colors font-bold shadow-sm">
+                Save
+            </button>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-3xl mx-auto w-full p-4 md:p-8 flex-1 flex flex-col h-[calc(100vh-80px)] overflow-hidden">
+        
+        <div class="text-center mb-6 mt-2 shrink-0">
+            <h2 class="text-3xl font-extrabold text-stone-800 mb-2">Daily Carbon Journal</h2>
+            <p class="text-stone-500">Log your daily activities. Our AI will analyze your carbon footprint and coach you.</p>
+        </div>
+
+        <!-- Input Section -->
+        <section class="bg-white rounded-2xl shadow-sm border border-stone-200 p-5 mb-6 shrink-0 relative z-10">
+            <div class="flex items-start space-x-4">
+                <div class="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 mt-1">
+                    <i class="fa-solid fa-pen"></i>
+                </div>
+                <div class="flex-1">
+                    <textarea 
+                        id="activityInput" 
+                        class="w-full p-4 border border-stone-200 rounded-xl bg-stone-50 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 focus:bg-white transition-all resize-none text-base custom-scrollbar"
+                        rows="3"
+                        placeholder="What did you do today? (e.g., Drove 10 miles to work, ate a chicken salad, left the lights on...)"
+                    ></textarea>
+                    
+                    <div id="statusMessage" class="hidden mt-3 p-3 rounded-lg flex items-center space-x-2 text-sm font-medium"></div>
+                    
+                    <div class="flex justify-end mt-3">
+                        <button 
+                            id="analyzeBtn" 
+                            class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-6 rounded-xl flex items-center space-x-2 transition-all shadow-md hover:shadow-lg disabled:bg-stone-300 disabled:cursor-not-allowed"
+                        >
+                            <i id="btnIcon" class="fa-solid fa-seedling"></i>
+                            <span id="btnText">Analyze My Day</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Feed Section -->
+        <section class="flex-1 overflow-y-auto custom-scrollbar pr-2 relative z-0" id="feedContainer">
+            
+            <!-- Empty State -->
+            <div id="emptyState" class="h-full flex flex-col items-center justify-center text-stone-400 opacity-80 py-10">
+                <i class="fa-solid fa-earth-americas text-6xl mb-4 text-stone-300"></i>
+                <h3 class="text-xl font-medium text-stone-500">Your journal is empty</h3>
+                <p class="text-sm mt-1 text-center">Log your first day above to get your personalized eco-score!</p>
+            </div>
+
+            <!-- Logs will be injected here -->
+            <div id="logsWrapper" class="space-y-6 pb-10"></div>
+            
+        </section>
+
+    </main>
+
+    <!-- JavaScript Logic -->
+    <script>
+        // DOM Elements
+        const apiKeyInput = document.getElementById('apiKeyInput');
+        const saveKeyBtn = document.getElementById('saveKeyBtn');
+        const activityInput = document.getElementById('activityInput');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const btnText = document.getElementById('btnText');
+        const btnIcon = document.getElementById('btnIcon');
+        const statusMessage = document.getElementById('statusMessage');
+        const emptyState = document.getElementById('emptyState');
+        const logsWrapper = document.getElementById('logsWrapper');
+
+        // State Variables
+        let apiKey = localStorage.getItem('gemini_api_key') || '';
+        let logs = [];
+
+        // Initialize API Key
+        if (apiKey) apiKeyInput.value = apiKey;
+
+        saveKeyBtn.addEventListener('click', () => {
+            const key = apiKeyInput.value.trim();
+            if (key) {
+                apiKey = key;
+                localStorage.setItem('gemini_api_key', key);
+                saveKeyBtn.textContent = "Saved ✓";
+                setTimeout(() => { saveKeyBtn.textContent = "Save"; }, 2000);
+            }
+        });
+
+        // --- API Submission ---
+        analyzeBtn.addEventListener('click', async () => {
+            const text = activityInput.value.trim();
+            
+            if (!text) {
+                showStatus('error', 'Please describe your day first.');
+                return;
+            }
+            if (!apiKey) {
+                showStatus('error', 'Please save your Gemini API Key at the top.');
+                return;
+            }
+
+            setLoading(true);
+            showStatus('info', 'Calculating your carbon impact...');
+
+            try {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                
+                const prompt = `
+                You are an expert, encouraging eco-coach analyzing a user's daily diary entry about their habits.
+                Read the user's text and calculate an estimated environmental impact.
+
+                Respond strictly in JSON format with the following keys:
+                - "score": A number from 0 to 100. (100 = perfectly green/zero emissions, 50 = average, 0 = terrible carbon footprint).
+                - "category": Strictly one of these three strings: "Good", "Neutral", or "Bad".
+                - "analysis": A 1-2 sentence friendly breakdown of what they did well and where the main emissions came from.
+                - "tip": ONE highly personalized, actionable micro-challenge for tomorrow based ONLY on what they wrote today.
+                `;
+
+                const payload = {
+                    contents: [{
+                        parts: [{ text: text }]
+                    }],
+                    systemInstruction: {
+                        parts: [{ text: prompt }]
+                    },
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: "OBJECT",
+                            properties: {
+                                score: { type: "INTEGER" },
+                                category: { type: "STRING", enum: ["Good", "Neutral", "Bad"] },
+                                analysis: { type: "STRING" },
+                                tip: { type: "STRING" }
+                            },
+                            required: ["score", "category", "analysis", "tip"]
+                        }
+                    }
+                };
+
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) throw new Error('API Error: Please check if your API key is valid.');
+
+                const data = await response.json();
+                const aiData = JSON.parse(data.candidates[0].content.parts[0].text);
+
+                // Create log object
+                const newLog = {
+                    id: Date.now().toString(),
+                    date: new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+                    time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+                    originalText: text,
+                    score: aiData.score,
+                    category: aiData.category,
+                    analysis: aiData.analysis,
+                    tip: aiData.tip
+                };
+
+                logs.unshift(newLog); // Add to top
+                renderLogs();
+                
+                activityInput.value = '';
+                showStatus('hidden', '');
+
+            } catch (error) {
+                console.error(error);
+                showStatus('error', error.message || 'Failed to analyze your day.');
+            } finally {
+                setLoading(false);
+            }
+        });
+
+        // --- UI Rendering ---
+        function renderLogs() {
+            if (logs.length > 0) {
+                emptyState.style.display = 'none';
+            } else {
+                emptyState.style.display = 'flex';
+            }
+
+            logsWrapper.innerHTML = '';
+
+            logs.forEach(log => {
+                let themeClass = '';
+                let iconHtml = '';
+                let progressColor = '';
+                
+                if (log.category === 'Good') {
+                    themeClass = 'bg-emerald-50 border-emerald-200 text-emerald-800';
+                    iconHtml = '<i class="fa-solid fa-leaf text-emerald-500 text-2xl"></i>';
+                    progressColor = 'text-emerald-500';
+                } else if (log.category === 'Bad') {
+                    themeClass = 'bg-red-50 border-red-200 text-red-800';
+                    iconHtml = '<i class="fa-solid fa-smog text-red-500 text-2xl"></i>';
+                    progressColor = 'text-red-500';
+                } else {
+                    themeClass = 'bg-amber-50 border-amber-200 text-amber-800';
+                    iconHtml = '<i class="fa-solid fa-scale-balanced text-amber-500 text-2xl"></i>';
+                    progressColor = 'text-amber-500';
+                }
+
+                // Calculate dasharray for the circular progress (circumference = 2 * pi * r ≈ 113)
+                const dashArray = 113;
+                const dashOffset = dashArray - (dashArray * log.score) / 100;
+
+                const card = document.createElement('div');
+                card.className = `animate-slide-down bg-white rounded-2xl border shadow-sm overflow-hidden border-stone-200`;
+                
+                card.innerHTML = `
+                    <div class="p-5 border-b border-stone-100 flex justify-between items-start">
+                        <div class="flex-1 pr-4">
+                            <span class="text-xs font-bold uppercase tracking-wider text-stone-400 flex items-center mb-2">
+                                <i class="fa-regular fa-calendar mr-1.5"></i> ${log.date} at ${log.time}
+                            </span>
+                            <p class="text-stone-700 italic text-sm leading-relaxed border-l-4 border-stone-200 pl-3 py-1">
+                                "${log.originalText}"
+                            </p>
+                        </div>
+                        
+                        <!-- Circular Score Badge -->
+                        <div class="relative w-16 h-16 shrink-0 flex items-center justify-center bg-stone-50 rounded-full shadow-inner">
+                            <svg class="absolute inset-0 w-full h-full transform -rotate-90" viewBox="0 0 40 40">
+                                <circle cx="20" cy="20" r="18" fill="none" class="stroke-stone-200" stroke-width="4"></circle>
+                                <circle cx="20" cy="20" r="18" fill="none" class="stroke-current ${progressColor} transition-all duration-1000 ease-out" stroke-width="4" stroke-dasharray="${dashArray}" stroke-dashoffset="${dashOffset}" stroke-linecap="round"></circle>
+                            </svg>
+                            <div class="absolute inset-0 flex flex-col items-center justify-center">
+                                <span class="text-lg font-black ${progressColor} leading-none">${log.score}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="${themeClass} p-5 flex flex-col sm:flex-row gap-4 sm:items-center">
+                        <div class="shrink-0 w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm">
+                            ${iconHtml}
+                        </div>
+                        <div class="flex-1">
+                            <h4 class="font-bold text-sm uppercase tracking-wide mb-1">AI Analysis</h4>
+                            <p class="text-sm font-medium opacity-90">${log.analysis}</p>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-stone-800 text-stone-100 p-4 flex items-start space-x-3">
+                        <i class="fa-solid fa-lightbulb text-yellow-400 mt-1"></i>
+                        <div>
+                            <span class="text-xs font-bold uppercase tracking-widest text-stone-400 block mb-0.5">Tomorrow's Challenge</span>
+                            <p class="text-sm font-medium">${log.tip}</p>
+                        </div>
+                    </div>
+                `;
+                
+                logsWrapper.appendChild(card);
+            });
+        }
+
+        function setLoading(isLoading) {
+            activityInput.disabled = isLoading;
+            analyzeBtn.disabled = isLoading;
+            
+            if (isLoading) {
+                btnText.textContent = 'Analyzing...';
+                btnIcon.className = 'fa-solid fa-spinner fa-spin';
+            } else {
+                btnText.textContent = 'Analyze My Day';
+                btnIcon.className = 'fa-solid fa-seedling';
+            }
+        }
+
+        function showStatus(type, text) {
+            if (type === 'hidden') {
+                statusMessage.classList.add('hidden');
+                return;
+            }
+
+            statusMessage.classList.remove('hidden', 'bg-red-50', 'text-red-700', 'bg-emerald-50', 'text-emerald-700');
+            
+            let icon = '';
+            if (type === 'error') {
+                statusMessage.classList.add('bg-red-50', 'text-red-700');
+                icon = '<i class="fa-solid fa-circle-exclamation text-lg"></i>';
+            } else if (type === 'info') {
+                statusMessage.classList.add('bg-emerald-50', 'text-emerald-700');
+                icon = '<i class="fa-solid fa-spinner fa-spin text-lg"></i>';
+            }
+
+            statusMessage.innerHTML = `${icon}<span>${text}</span>`;
+        }
+    </script>
+</body>
+</html>
